@@ -21,7 +21,7 @@ The filesystem layer provides some basic filesystem APIs, including file operati
 - Clone the source code from our GitLab:
 
 ```bash
-git clone https://ipads.se.sjtu.edu.cn:1312/lab/cse-2024-fall.git chfs -b lab1
+git clone https://ipads.se.sjtu.edu.cn:1312/lab/cse-2025-fall.git chfs -b lab1
 ```
 
 - Change the permissions of the directory. The following command is used to grant write (`w`) permission to other users (`o`) recursively (`-R`) for all files and directories within the directory `chfs`. This operation is necessary because we will write within this directory inside a docker container.
@@ -45,7 +45,7 @@ This will simplify the configuration of the environments.
 If you are not familiar with docker container, [this tutorial](https://www.runoob.com/docker/docker-container-usage.html) may help you quickly grasp how to use docker container. If you haven't install docker before, please install docker on your own workspace. You can refer [this tutorial](https://docs.docker.com/desktop/install/windows-install/) to install docker.
 
 - To get the docker image, you have two choices:
-    - Pull from remote repository:
+    - **[Recommended]** Pull from remote repository:
 
     ```bash
     docker pull registry.cn-shenzhen.aliyuncs.com/cse-lab/cse-lab:v1 
@@ -58,7 +58,7 @@ If you are not familiar with docker container, [this tutorial](https://www.runoo
     docker build -t chfs_image .
     ```
 
-- Create a docker container. You only need to create the docker container once if you have not deleted the container. Execute the following command inside the directory `chfs`. The following command mounts the `chfs` directory to the docker container, which means that all the changes to the files inside the directory will be reflected inside the docker container, and vice versa.
+- Create a docker container. You only need to create the docker container once if you have not deleted the container. **Execute the following command inside the directory `chfs`.** The following command mounts the `chfs` directory to the docker container, which means that all the changes to the files inside the directory will be reflected inside the docker container, and vice versa.
 
 ```bash
 docker create -t -i --privileged --name chfs -v $(pwd):/home/stu/chfs chfs_image bash
@@ -100,6 +100,8 @@ make build-tests -j
 make fs -j
 ```
 
+**Do Not forget to re-compile after your implementation !!!**
+
 ### Test
 
 We have prepared two kinds of tests for Lab 1: the unit tests and the integration tests.
@@ -133,9 +135,11 @@ Then execute the following command under `scripts/lab1` directory:
 
 ---
 
-## Demo
+## Playing with your own filesystem !
 
-Lab 1 implements a simple single-machine inode-based filesystem which can support some basic filesystem operations, such as the creation of a file/directory, the deletion of a file, read/write a file and list the contents of a directory. You can skip this demo part now and start your lab from the next part `Part1: Block Layer`.After finish lab1, you can try to use the filesystem implemented by yourself! Follow the steps:
+Lab 1 implements a simple single-machine inode-based filesystem which can support some basic filesystem operations, such as the creation of a file/directory, the deletion of a file, read/write a file and list the contents of a directory. 
+
+**You can skip this demo part now and start your lab from the next part `Part1: Block Layer`.** After finish lab1, you can try to use the filesystem implemented by yourself if you are interested! Follow the steps:
 
 - Under `chfs` directory, execute:
 
@@ -386,7 +390,7 @@ You can also execute the following command to execute one specific integration t
 
 - Carefully read the test scripts (the `test-lab1-part2-*` scripts inside `scripts/lab1`) of these integration tests, some of which are written in Perl (the `.pl` files inside `scripts/lab1` directory). To understand what these tests are doing, [this tutorial](https://www.runoob.com/perl/perl-tutorial.html) may help you quickly grasp Perl.
 
-- Carefully read our implementaion of the adaptor layer in `daemons/single_node_fs/main.cc`. Here are the functions which you should focus on:
+- Carefully read our implementation of the adaptor layer in `daemons/single_node_fs/main.cc`. Here are the functions which you should focus on:
 
     - `chfs_open`
     - `chfs_getattr`
@@ -402,6 +406,10 @@ You can also execute the following command to execute one specific integration t
     Each of these functions implements one standard filesystem operation used by other user applications. You can use `std::cout` inside these functions to output more information to help you debug. You may also refer [the the libfuse document](http://libfuse.github.io/doxygen/index.html) to understand the libfuse APIs (the `fuse_xxx` functions) used in the adaptor layer. These functions may help you to understand the behavior of functions you implemented in `src/filesystem/data_op.cc` and `src/filesystem/directory_op.cc`.
 
 - Please note that passing all the unit tests does not guarantee the complete correctness of your implementations. So you may need to go back to fix the bugs  if you cannot pass the integration tests.
+
+- For any environments problems, you can refer the shared documentation in the Wechat Group first. TA will conclude some typical problems and give solutions there. 
+If you still can't solve your problem, feel free to ask TA (responding to lab1) via Wechat. I am happy to take some questions. :D
+
 
 ## Grading
 
@@ -424,6 +432,19 @@ For the integration tests, execute the following command under `scripts/lab1` di
 ./integration_test.sh
 ```
 
+There are 25 basic tests points and 5 integration tests points in lab1. We will use some weighted-sum criterion to evaluate your works finally.
+
+
+It's very normal that you can pass all the basic tests while fail
+at integration tests. It's mainly because some bugs in your code,
+so make sure you understand all the details in this documentation,
+especially the inode-layer.
+
+All the evaluation scripts are open-sourced for lab1 in the 
+`scripts/lab1`, feel free to read it and ascertain what's going wrong in your codes. You can even modify the test scripts or add more tests for debugging. 
+
+**Note that we will restore all the scripts when evaluation, so make sure you can pass all the initial tests.**
+
 ## Handin
 
 Execute the following command under `scripts/lab1` directory:
@@ -432,5 +453,10 @@ Execute the following command under `scripts/lab1` directory:
 ./handin.sh
 ```
 
-Then you will see a `handin.tgz` file under the root directory of this project. Please rename it in the format of: `lab1_[your student id].tgz`, and upload this `.tgz` file to Canvas.
+**Note that executing this scripts on other directories may cause corrupted handin!**
+
+Then you will see a `handin.tgz` file under the root directory of this project. **Please rename it in the format of: `lab1_[your student id].tgz`, and upload this `.tgz` file to Canvas.**
+We use the automatic scripts to evaluate all students' work, so
+if your submission's format is not correct, it will cause unexpected results and may affect your grades.
+
 If you use docker environment, remember to execute the `handin.sh` in the docker environment. You can use `docker cp` command to copy your `handin.tgz` file from the docker environment to host.
