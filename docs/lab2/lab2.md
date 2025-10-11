@@ -8,13 +8,15 @@ In Lab 2, you will implement a distributed file system based on Lab 1. The overa
 
 As you can see, this filesystem consists of three components: **filesystem client**, **metadata server**, and **data server**.
 
-In Lab 2, a file is split into one or more blocks, and these blocks are stored on a set of data servers. The filesystem is responsible for serving read and write requests from the filesystem client, as well as instructions like block creation and deletion from the metadata server.
+In Lab 2, a file is split into one or more blocks, and these blocks are stored on metadata server and a set of data servers. Metadata server and data servers are responsible for serving read and write requests from the filesystem client, as well as instructions like block creation and deletion from the metadata server.
 
-The metadata server is a server that maintains all file system metadata. It stores the inode and other metadata of a file, such as the location of each block (machine id) and the `block_id` at this machine. Besides, it is responsible for serving metadata operations like file creation, deletion, and querying data block positions for reads and writes. **Note that there is only one metadata server in this lab (no replication).**
+The metadata server is a server that maintains all file system metadata. It stores the inode and other metadata of a file, such as the location of each block (machine id of data server) and the `block_id` at this machine. Besides, it is responsible for serving metadata operations like file creation, deletion, and querying data block positions for reads and writes. **Note that there is only one metadata server in this lab (no replication).**
 
-The filesystem client implements the filesystem logic by issuing RPCs to the metadata server and the data server.
+The data server is only responsible for storing file data. There may be multiple data servers in a distributed file system and each of them have a unique machine id to identify. For metadata server or FS client, it can use "machine id + function + args" to access a data server.  
 
-**Notice:** refer to [CSE 2024 Lab 2](https://docs.qq.com/doc/DQndkTGN5eUlSQnZO) first if you encounter any problems. The document contains some common problems and solutions in this lab.
+FS clients act as the frontend of the whole system. The filesystem client implements the filesystem logic by issuing RPCs to the metadata server and the data server.
+
+**Notice:** refer to [CSE 2025 Lab 2](https://docs.qq.com/doc/DTmJKc3hGVXN4b3RI) and this doc first if you encounter any problems. These documents contains some common problems and solutions in this lab.
 
 ### Get the Source Code
 
@@ -49,9 +51,12 @@ You can still build the project and test your codes on the same container you us
 
 ### Implementation
 
-We break down this lab into three parts: First, you should change the single-node filesystem in lab1 to a distributed filesystem by dividing it into data server, metadata server, and filesystem client.
-Second, you should implement the lock manager in the metadata server so that the metadata server can handle concurrent requests from multiple clients and ensure before-or-after atomicity for **metadata operations**.
-Finally, you need to implement the log manager in the metadata server so that the metadata server can recover from a crash to ensure that **metadata operations** are all-or-nothing.
+We break down this lab into three parts: 
+1. First, you should change the single-node filesystem in lab1 to a distributed filesystem by dividing it into data server, metadata server, and filesystem client.
+2. Second, you should implement the lock manager in the **metadata server** so that the metadata server can handle concurrent requests from multiple clients and ensure before-or-after atomicity for **metadata operations**.
+3. Finally, you need to implement the log manager in the **metadata server** so that the metadata server can recover from a crash to ensure that 
+**metadata operations** are all-or-nothing.
+
 **Notice**: These components communicate with each other by using RPC (Remote Procedure Call). Please refer to [librpc.md](librpc.md) for more details about the RPC module. **And there's an important assumption in this lab that RPC won't fail.**
 
 ### Compile Code And Test
@@ -132,7 +137,9 @@ You need to implement the following functions inside `src/distributed/client.cc`
 
 **Notice on the implementation of read/write file**: Like GFS, if a client wants to read/write a file, it should first get the block mapping (block ids of the block belonging to this file) from the metadata server. Then it can directly send read/write requests to the corresponding blocks on data servers. If the client wants to write an empty file, it should first call the metadata server to allocate a block on a data server.
 
-Due to this separate design, a tricky case is that there would be distributed before-or-after atomicity issues. If a client first gets the mapping of file A, another client deletes file A, and finally a third client creates a new file based on the old mapping of file A, the first client may read the wrong data. Therefore, you need to implement a version mechanism to detect such a race condition. Specifically, each block has a version number, which is stored together with the block at the data server, shown below.  Based on the version, the metadata server will also store the versions of blocks belonging to a file. These versions will be returned as a part of the mapping to the client. 
+Due to this separate design, a tricky case is that there would be distributed before-or-after atomicity issues. If a client first gets the mapping of file A, another client deletes file A, and finally a third client creates a new file based on the old mapping of file A, the first client may read the wrong data. 
+
+Therefore, you need to implement a simple version mechanism to detect such a race condition. Specifically, each block has a version number, which is stored together with the block at the data server, shown below.  Based on the version, the metadata server will also store the versions of blocks belonging to a file. These versions will be returned as a part of the mapping to the client. 
 
 If a block no longer belongs to a file, we will first increment the block version on the dataserver. Based on this scheme, we can detect the above race by letting the data server reject block read/write requests with a mismatched version. 
 
