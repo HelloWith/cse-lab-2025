@@ -344,6 +344,8 @@ make run_concurrent_stress_test
 
 For the integration test, please refer to the [Run Demo & Integration Test](#run-demo--integration-test) section of this document.
 
+**Note:** Fell free to modify any test code when debug. But make sure that you can pass all tests without modifying any test codes in the end. The test files will be restored to their initial version during grading. 
+
 ## Handin
 
 Execute the following command under the `scripts/lab2` directory:
