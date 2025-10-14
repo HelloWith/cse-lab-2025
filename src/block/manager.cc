@@ -111,7 +111,6 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
   std::memcpy(target_ptr, data, len);
   
   if (!in_memory) {
-    // 同步整个块以确保数据一致性
     u8 *block_start = block_data + block_id * block_sz;
     if (msync(block_start, block_sz, MS_SYNC) == -1) {
       return ChfsNullResult(ErrorType::INVALID);
