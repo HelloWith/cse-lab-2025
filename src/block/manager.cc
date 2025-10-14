@@ -76,7 +76,18 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data)
     -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+  if (block_id >= this->block_cnt) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  if (block_data == nullptr) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  usize offset = block_id * this->block_sz;
+  u8 *target_addr = this->block_data + offset;
+  std::memcpy(target_addr, block_data, this->block_sz);
 
   return KNullOk;
 }
