@@ -77,17 +77,23 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data)
   
   // TODO: Implement this function.
   // UNIMPLEMENTED();
-  if (block_id >= this->block_cnt) {
+  // 检查block_id是否有效
+  if (block_id >= block_cnt) {
     return ChfsNullResult(ErrorType::INVALID_ARG);
   }
 
-  if (block_data == nullptr) {
-    return ChfsNullResult(ErrorType::INVALID_ARG);
+  // 计算目标块在内存中的起始位置
+  u8 *target_ptr = block_data + block_id * block_sz;
+  
+  // 将数据复制到目标位置
+  std::memcpy(target_ptr, data, block_sz);
+  
+  // 如果不是内存模式，需要将数据同步到磁盘
+  if (!in_memory) {
+    if (msync(target_ptr, block_sz, MS_SYNC) == -1) {
+      return ChfsNullResult(ErrorType::INVALID);
+    }
   }
-
-  usize offset = block_id * this->block_sz;
-  u8 *target_addr = this->block_data + offset;
-  std::memcpy(target_addr, block_data, this->block_sz);
 
   return KNullOk;
 }
@@ -97,7 +103,26 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
     -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+  // 检查参数有效性
+  if (block_id >= block_cnt || offset + len > block_sz) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  // 计算目标块在内存中的起始位置和要写入的具体位置
+  u8 *target_ptr = block_data + block_id * block_sz + offset;
+  
+  // 将部分数据复制到目标位置
+  std::memcpy(target_ptr, data, len);
+  
+  // 如果不是内存模式，需要将数据同步到磁盘
+  if (!in_memory) {
+    // 同步整个块以确保数据一致性
+    u8 *block_start = block_data + block_id * block_sz;
+    if (msync(block_start, block_sz, MS_SYNC) == -1) {
+      return ChfsNullResult(ErrorType::INVALID);
+    }
+  }
 
   return KNullOk;
 }
@@ -105,7 +130,17 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
 auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+  // 检查block_id是否有效
+  if (block_id >= block_cnt) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  // 计算源块在内存中的起始位置
+  const u8 *source_ptr = block_data + block_id * block_sz;
+  
+  // 将数据从源位置复制到提供的缓冲区
+  std::memcpy(data, source_ptr, block_sz);
 
   return KNullOk;
 }
@@ -113,7 +148,24 @@ auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
 auto BlockManager::zero_block(block_id_t block_id) -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+  // 检查block_id是否有效
+  if (block_id >= block_cnt) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  // 计算目标块在内存中的起始位置
+  u8 *target_ptr = block_data + block_id * block_sz;
+  
+  // 将整个块清零
+  std::memset(target_ptr, 0, block_sz);
+  
+  // 如果不是内存模式，需要将数据同步到磁盘
+  if (!in_memory) {
+    if (msync(target_ptr, block_sz, MS_SYNC) == -1) {
+      return ChfsNullResult(ErrorType::INVALID);
+    }
+  }
 
   return KNullOk;
 }
