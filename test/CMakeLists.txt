@@ -21,6 +21,13 @@ add_custom_target(check-tests COMMAND ${CMAKE_CTEST_COMMAND} --verbose)
 foreach (chfs_test_source ${CHFS_TEST_SOURCES})
     # Create a human readable name.
     get_filename_component(chfs_test_filename ${chfs_test_source} NAME)
+
+    # [hcwang]判断是否是 commit_log_test.cc，如果是就跳过
+    if(chfs_test_filename STREQUAL "commit_log_test.cc")
+        message(STATUS "Skipping test: ${chfs_test_filename}")
+        continue()
+    endif()
+    
     string(REPLACE ".cc" "" chfs_test_name ${chfs_test_filename})
 
     # Add the test target separately and as part of "make check-tests".

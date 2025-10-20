@@ -182,7 +182,9 @@ make run_concurrent_stress_test
 ---
 
 ## Part 3: (Optional) Recover after crash
-> NOTE: This part **does not** count towards the score.
+> NOTE1: This part **does not** count towards the score.    
+> NOTE2: `CommitLogTest` is not originally included in test. If you want to check your implementation, comment out `test/CMakeLists.txt` line 25-29 like this: ![alt text](comment-out-for-part3.png)   
+> and then rebuild unit test.
 
 Finally, we will use **redo-logging** to ensure filesystem **metadata** operations are all-or-nothing atomic. 
 Before you start this part, you should first learn the following assumptions:
