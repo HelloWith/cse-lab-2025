@@ -181,7 +181,8 @@ make run_concurrent_stress_test
 
 ---
 
-## Part 3: Recover after crash
+## Part 3: (Optional) Recover after crash
+> NOTE: This part **does not** count towards the score.
 
 Finally, we will use **redo-logging** to ensure filesystem **metadata** operations are all-or-nothing atomic. 
 Before you start this part, you should first learn the following assumptions:
@@ -225,6 +226,7 @@ If your implementation is correct, you should pass:
 - `CommitLogTest.CheckCheckpointFunctional`
 
 <a id="run-demo--integration-test"></a>
+
 ## Run Demo & Integration Test
 
 Like lab1, we also use [the libfuse userspace library](http://libfuse.github.io/doxygen/index.html) provided by FUSE (Filesystem in Userspace) to implement the adaptor layer. You can refer to `daemons/distributed/main.cc` for the detailed implementation. 
