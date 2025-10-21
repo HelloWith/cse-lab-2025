@@ -54,7 +54,7 @@ You can still build the project and test your codes on the same container you us
 We break down this lab into three parts: 
 1. First, you should change the single-node filesystem in lab1 to a distributed filesystem by dividing it into data server, metadata server, and filesystem client.
 2. Second, you should implement the lock manager in the **metadata server** so that the metadata server can handle concurrent requests from multiple clients and ensure before-or-after atomicity for **metadata operations**.
-3. Finally, you need to implement the log manager in the **metadata server** so that the metadata server can recover from a crash to ensure that 
+3. (Optional, not count for score) Finally, you need to implement the log manager in the **metadata server** so that the metadata server can recover from a crash to ensure that 
 **metadata operations** are all-or-nothing.
 
 **Notice**: These components communicate with each other by using RPC (Remote Procedure Call). Please refer to [librpc.md](librpc.md) for more details about the RPC module. **And there's an important assumption in this lab that RPC won't fail.**
