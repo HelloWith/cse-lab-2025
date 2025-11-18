@@ -141,7 +141,8 @@ private:
     std::unique_ptr<std::thread> background_commit;
     std::unique_ptr<std::thread> background_apply;
 
-    /* Lab3: Your code here */
+    /* Lab3: Your code here 
+       >> Define any variable or helper function that is necessary. */
 };
 
 template <typename StateMachine, typename Command>
@@ -199,7 +200,8 @@ RaftNode<StateMachine, Command>::~RaftNode()
 template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::start() -> int
 {
-    /* Lab3: Your code here */
+    /* Lab3: Your code here
+       >> You may refer to test files in order to get a better understanding of these interfaces. */
 
     background_election = std::make_unique<std::thread>(&RaftNode::run_background_election, this);
     background_ping = std::make_unique<std::thread>(&RaftNode::run_background_ping, this);
@@ -274,7 +276,8 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
 template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_arg) -> AppendEntriesReply
 {
-    /* Lab3: Your code here */
+    /* Lab3: Your code here 
+       >> You MAY need helper functions defined in protocol.h. */
     return AppendEntriesReply();
 }
 
