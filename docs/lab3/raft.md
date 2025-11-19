@@ -2,7 +2,7 @@
 
 **Hand out: Nov 19, 2025** 
 
-**Deadline: 23:59 Dec 99, 9999, No Extension**
+**Deadline: 23:59 Dec 10，2025, No Extension**
 
 ## Introduction
 
@@ -328,7 +328,7 @@ Hints:
 * To simplify your implementation, you don't have to consider the crash during the disk I/O. The test case won't crash your program during the I/O. For example, you don't have to make sure the atomicity of the state persists.
 * You can use multiple files to persist different data (e.g. a file for metadata and the other for logs).
 * To persist the command, you can use the `serialize` and `deserialize` interfaces of the `ChfsCommand`.
-* Some tests may take quite a while to run. Just sit back and relax!
+* Some tests may take quite a while to run (around 5-10 minutes for RaftTestPart3.Figure8). Just sit back and relax!
 
 ## Part 4 - Snapshot 
 
