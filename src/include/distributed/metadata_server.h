@@ -245,6 +245,7 @@ private:
   /**
    * {You can add anything you want here}
    */
+  std::mutex metadata_server_mutex_; // Add lock
 };
 
 } // namespace chfs
