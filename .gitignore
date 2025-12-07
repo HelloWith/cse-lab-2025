@@ -243,3 +243,8 @@ docs/dev
 
 # Submission zip files
 *.zip
+
+# else
+*.tgz
+chfs.log
+ChfsNullResult

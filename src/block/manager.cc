@@ -95,8 +95,23 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data)
   
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-  this->write_fail_cnt++;
+  // UNIMPLEMENTED();
+  // this->write_fail_cnt++;
+  
+  if (block_id >= block_cnt) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  u8 *target_ptr = block_data + block_id * block_sz;
+  
+  std::memcpy(target_ptr, data, block_sz);
+  
+  if (!in_memory) {
+    if (msync(target_ptr, block_sz, MS_SYNC) == -1) {
+      return ChfsNullResult(ErrorType::INVALID);
+    }
+  }
+
   return KNullOk;
 }
 
@@ -111,15 +126,39 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
   }
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-  this->write_fail_cnt++;
+  // UNIMPLEMENTED();
+  // this->write_fail_cnt++;
+
+  if (block_id >= block_cnt || offset + len > block_sz) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  u8 *target_ptr = block_data + block_id * block_sz + offset;
+  
+  std::memcpy(target_ptr, data, len);
+  
+  if (!in_memory) {
+    u8 *block_start = block_data + block_id * block_sz;
+    if (msync(block_start, block_sz, MS_SYNC) == -1) {
+      return ChfsNullResult(ErrorType::INVALID);
+    }
+  }
+
   return KNullOk;
 }
 
 auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+
+  if (block_id >= block_cnt) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  const u8 *source_ptr = block_data + block_id * block_sz;
+  
+  std::memcpy(data, source_ptr, block_sz);
 
   return KNullOk;
 }
@@ -127,7 +166,21 @@ auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
 auto BlockManager::zero_block(block_id_t block_id) -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+
+  if (block_id >= block_cnt) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+
+  u8 *target_ptr = block_data + block_id * block_sz;
+  
+  std::memset(target_ptr, 0, block_sz);
+
+  if (!in_memory) {
+    if (msync(target_ptr, block_sz, MS_SYNC) == -1) {
+      return ChfsNullResult(ErrorType::INVALID);
+    }
+  }
 
   return KNullOk;
 }

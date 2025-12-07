@@ -119,6 +119,8 @@ public:
 private:
   std::unique_ptr<RpcServer> server_;
   std::shared_ptr<BlockAllocator> block_allocator_;
+
+  std::mutex data_server_mutex_; // Add lock
 };
 
 } // namespace chfs
