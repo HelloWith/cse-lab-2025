@@ -66,11 +66,11 @@ private:
     std::mutex mtx;
 
     /* Lab3: Your code here */
-
 };
 
 template <typename Command>
 RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm)
+    : bm_(bm)
 {
     /* Lab3: Your code here */
 }

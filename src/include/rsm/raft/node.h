@@ -371,6 +371,8 @@ auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> Requ
     RAFT_LOG("receieve request_vote: candidateId=%d, term=%d, lastLogIndex=%d, lastLogTerm=%d", args.candidate_id, args.term, args.last_log_index, args.last_log_term);
 
     RequestVoteReply reply;
+    reply.term = current_term;
+    reply.vote_granted = false; 
     
     // Rule1: Reply false if term < currentTerm
     if (args.term < current_term) {
@@ -411,6 +413,7 @@ auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> Requ
     voted_for = args.candidate_id;
     reset_election_timer();
     
+    reply.term = current_term;
     reply.vote_granted = true;
     RAFT_LOG("grant vote to candidate %d for term %d", args.candidate_id, current_term);
     if (args.term == current_term && role != RaftRole::Follower) {
