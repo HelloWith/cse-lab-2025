@@ -13,6 +13,39 @@ class LogEntry {
 public:
     /* Lab3: Your code here 
        >> You may need this class for better implementation. */
+
+    LogEntry() : term_(0), command_(Command()) {}
+
+    LogEntry(int term, const Command &command) : term_(term), command_(command) {}
+
+    LogEntry(std::vector<u8> data, int offset, int size)
+    {
+        // since the offset, the first 4 bytes are the term
+        term_ = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+        // the rest of the data is the command
+        command_.deserialize(std::vector<u8>(data.begin() + offset + 4, data.begin() + offset + 4 + size), size);
+    }
+
+    ~LogEntry() {}
+
+    int term() const
+    {
+        return term_;
+    }
+
+    Command command() const
+    {
+        return command_;
+    }
+
+    size_t size() const
+    {
+        return 4 + command_.size();
+    }
+
+private:
+    int term_;
+    Command command_;
 };
 
 
