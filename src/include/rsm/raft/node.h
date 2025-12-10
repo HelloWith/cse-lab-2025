@@ -22,6 +22,10 @@
 
 namespace chfs {
 
+const std::string raft_log_folder = "/tmp/raft_log";
+const std::string node_file_subpath = "/node_";
+
+
 enum class RaftRole {
     Follower,
     Candidate,
@@ -259,6 +263,15 @@ auto RaftNode<StateMachine, Command>::start() -> int
     }
 
     RAFT_LOG("starting node...");
+
+    // RaftLog for persistence
+    std::string node_log_filename = raft_log_folder + node_file_subpath + std::to_string(my_id);
+    bool is_recovery = is_file_exist(node_log_filename);
+    auto block_manager = std::shared_ptr<BlockManager>(new BlockManager(node_log_filename));
+    log_storage = std::make_unique<RaftLog<Command>>(block_manager, is_recovery, current_term, voted_for, logs);
+    RAFT_LOG("Recovered log: term %d, voted_for %d", current_term, voted_for);
+
+
     stopped.store(false);
 
     try {
@@ -344,10 +357,13 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
     // 创建日志条目
     LogEntry<Command> entry(current_term, cmd);
     logs.push_back(entry);
-    int log_index = static_cast<int>(logs.size()) - 1;  // 注意：索引从1开始
+    int log_index = static_cast<int>(logs.size()) - 1;
     RAFT_LOG("after add new comand, current_log_index:%d", static_cast<int>(logs.size()) - 1);
 
-    // TODO: 持久化log in part3
+    // 持久化
+    if (log_storage) {
+        log_storage->save_all(current_term, voted_for, logs);
+    }
     
     return std::make_tuple(true, current_term, log_index);
 }
@@ -400,7 +416,11 @@ auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> Requ
         voted_for = -1;
         votes_received = 0;
         reset_election_timer();
-        // 注意：Part 3需要在此持久化状态
+
+        // 持久化
+        if (log_storage) {
+            log_storage->save_all(current_term, voted_for, logs);
+        }
     }
 
     // Check if voted
@@ -425,6 +445,9 @@ auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> Requ
 
     voted_for = args.candidate_id;
     reset_election_timer();
+    if (log_storage) {
+        log_storage->save_all(current_term, voted_for, logs);
+    }
     
     reply.term = current_term;
     reply.vote_granted = true;
@@ -456,9 +479,11 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
         role = RaftRole::Follower;
         voted_for = -1;
         votes_received = 0;
-        // election_in_progress = false;
         leader_id = -1;
         reset_election_timer();
+        if (log_storage) {
+            log_storage->save_all(current_term, voted_for, logs);
+        }
         return;
     }
 
@@ -482,7 +507,6 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
             role = RaftRole::Leader;
             leader_id = my_id;
             
-            // 重置选举计时器（Leader 不需要选举计时器）
             reset_election_timer();
             
             // 初始化 Leader 状态
@@ -534,6 +558,9 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
         votes_received = 0; 
         leader_id = arg.leader_id;
         reset_election_timer();
+        if (log_storage) {
+            log_storage->save_all(current_term, voted_for, logs);
+        }
     }
 
     // 如果我是 Candidate，收到合法领导者的心跳，转为 follower
@@ -544,6 +571,9 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
         votes_received = 0; 
         leader_id = arg.leader_id;
         reset_election_timer();
+        if (log_storage) {
+            log_storage->save_all(current_term, voted_for, logs);
+        }
     }
 
     if (arg.term == current_term) {
@@ -589,13 +619,16 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
     
     // 检查冲突
     for (size_t i = 0; i < args.entries.size(); i++) {
-        int log_idx = index + i + 1;  // 逻辑索引
+        int log_idx = index + i + 1;
         
         if (log_idx < static_cast<int>(logs.size()) - 1) {
             if (logs[log_idx].term() != arg.entries[i].term()) {
                 // 发现冲突，删除从这个位置开始的所有条目
                 logs.resize(log_idx);
                 RAFT_LOG("found conflict at index %d, truncating log", log_idx);
+                if (log_storage) {
+                    log_storage->save_all(current_term, voted_for, logs);
+                }
                 break;
             }
         }
@@ -611,6 +644,10 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
             RAFT_LOG("append new entry at index %d, term %d", log_idx, arg.entries[i].term());
         }
         // 如果已经存在（term匹配），则跳过
+    }
+
+    if (log_storage) {
+        log_storage->save_all(current_term, voted_for, logs);
     }
     
     // 5. 更新commit_idx
@@ -646,8 +683,6 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
         leader_id = -1;
         reset_election_timer();
     }
-
-    // TODO: 实现其他逻辑
 
     // 如果不是领导者，忽略回复
     if (role != RaftRole::Leader) {
@@ -823,33 +858,6 @@ void RaftNode<StateMachine, Command>::update_commit_index()
     if (role != RaftRole::Leader) {
         return;
     }
-        
-    // // 复制match_idx以便排序
-    // std::vector<int> match_copy = match_idx;
-        
-    // // 按降序排序
-    // std::sort(match_copy.rbegin(), match_copy.rend());
-        
-    // // 找到多数节点已复制的索引
-    // int majority = (node_configs.size() / 2) + 1;
-        
-    // for (int n = static_cast<int>(logs.size()) - 1; n > commit_idx; n--) {
-    //     // 计算有多少节点的match_idx >= n
-    //     int count = 0;
-    //     for (int idx : match_copy) {
-    //         if (idx >= n) {
-    //             count++;
-    //             if (count >= majority) {
-    //                 // 检查日志条目是否来自当前任期（Raft安全性要求）
-    //                 if (logs[n].term() == current_term) {
-    //                     commit_idx = n;
-    //                     RAFT_LOG("commit_idx updated to %d", commit_idx);
-    //                 }
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
 
     for (int N = static_cast<int>(logs.size()) - 1; N > commit_idx; --N) {
         int count = 1; // Count this node
@@ -909,6 +917,11 @@ void RaftNode<StateMachine, Command>::run_background_election() {
             
                 // 重置选举计时器
                 reset_election_timer();
+
+                // part3 持久化
+                if (log_storage) {
+                    log_storage->save_all(current_term, voted_for, logs);
+                }
             
                 // 创建投票请求
                 RequestVoteArgs args;
