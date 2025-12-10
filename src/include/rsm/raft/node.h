@@ -109,6 +109,10 @@ private:
     void send_install_snapshot(int target, InstallSnapshotArgs arg);
     void handle_install_snapshot_reply(int target, const InstallSnapshotArgs arg, const InstallSnapshotReply reply);
 
+    // Add for self
+    void send_log_entries(int target_id);
+    void update_commit_index();
+
     /* background workers */
     void run_background_ping();
     void run_background_election();
@@ -210,6 +214,7 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
 
 
     thread_pool = std::make_unique<ThreadPool>(4);
+    state = std::make_unique<StateMachine>();
     reset_election_timer();
     reset_heartbeat_timer();
 
@@ -217,6 +222,9 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
     logs.push_back(LogEntry<Command>());  // 添加一个空条目到索引 0
     // 现在 logs[0] 是一个空条目
     // logs[1] 将是第一个真正的日志条目
+
+    next_idx.resize(configs.size(), 1);  // 初始化为1，因为日志索引从1开始
+    match_idx.resize(configs.size(), 0);
 
     rpc_server->run(true, configs.size()); 
 }
@@ -323,6 +331,7 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
     /* Lab3: Your code here */
     std::lock_guard<std::mutex> lock(mtx);
     RAFT_LOG("received new command");
+    RAFT_LOG("before add new comand, current_log_index:%d", static_cast<int>(logs.size()) - 1);
 
     if (role != RaftRole::Leader) {
         RAFT_LOG("this node is not Leader in current_term: %d", current_term);
@@ -335,9 +344,10 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
     // 创建日志条目
     LogEntry<Command> entry(current_term, cmd);
     logs.push_back(entry);
-    int log_index = logs.size();  // 注意：索引从1开始
+    int log_index = static_cast<int>(logs.size()) - 1;  // 注意：索引从1开始
+    RAFT_LOG("after add new comand, current_log_index:%d", static_cast<int>(logs.size()) - 1);
 
-    // TODO: 持久化log
+    // TODO: 持久化log in part3
     
     return std::make_tuple(true, current_term, log_index);
 }
@@ -402,7 +412,10 @@ auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> Requ
         return reply;
     }
 
-    bool log_is_up_to_date = true; // TODO: 在后续阶段添加关于log的判断
+    bool log_is_up_to_date =
+        (args.last_log_term > logs.back().term()) ||
+        (args.last_log_term == logs.back().term() && args.last_log_index >= static_cast<int>(logs.size()) - 1);
+
     if (!log_is_up_to_date) {
         RAFT_LOG("reject request_vote: candidate's log is not up-to-date");
         reply.term = current_term;
@@ -468,18 +481,20 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
 
             role = RaftRole::Leader;
             leader_id = my_id;
-            // election_in_progress = false;
             
             // 重置选举计时器（Leader 不需要选举计时器）
             reset_election_timer();
             
-            // 初始化 Leader 状态（Part 2 会用到）
+            // 初始化 Leader 状态
             // nextIndex[] 和 matchIndex[] 初始化
-            last_heartbeat_sent = std::chrono::steady_clock::now() - std::chrono::milliseconds(heartbeat_timeout_ms + 1);
+            int last_log_index = static_cast<int>(logs.size()) - 1;
+            for (size_t i = 0; i < node_configs.size(); i++) {
+                next_idx[i] = last_log_index ? last_log_index : 1;  // 下一个要发送的索引
+                match_idx[i] = 0;  // 初始化为0
+            }
             
             // 立即发送心跳，确立领导地位
-            // 注意：这里需要小心死锁，因为我们在 lock 中
-            // 更好的做法是设置一个标志，让 background_ping 线程发送
+            last_heartbeat_sent = std::chrono::steady_clock::now() - std::chrono::milliseconds(heartbeat_timeout_ms + 1);
             RAFT_LOG("become Leader, will send initial heartbeats");
         }
     } else {
@@ -499,7 +514,7 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
     reply.success = false;
 
     auto arg = transform_rpc_append_entries_args<Command>(rpc_arg);
-    RAFT_LOG("receive append_entries from leader %d, term=%d", arg.leader_id, arg.term);
+    // RAFT_LOG("receive append_entries from leader %d, term=%d", arg.leader_id, arg.term);
 
     if (arg.term < current_term) {
         RAFT_LOG("reject: term %d < currentTerm %d", arg.term, current_term);
@@ -523,7 +538,7 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
 
     // 如果我是 Candidate，收到合法领导者的心跳，转为 follower
     if (role == RaftRole::Candidate && arg.term == current_term) {
-        RAFT_LOG("candidate recieved heartbeat, trans to follower");
+        RAFT_LOG("recieved leader(%d)'s append_entries, trans to follower", arg.leader_id);
         role = RaftRole::Follower;
         voted_for = -1;
         votes_received = 0; 
@@ -535,11 +550,23 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
         leader_id = arg.leader_id;
     }
 
-    //TODO: 在后续阶段添加log ...DONE in part2
+    // Heartbeat recieved
+    if (rpc_arg.entries_data.empty()) {
+        // RAFT_LOG("received heartbeat from node %d", rpc_arg.leader_id);
+        if (rpc_arg.leader_commit > commit_idx) {
+            int commit_index = std::min(rpc_arg.leader_commit, rpc_arg.prev_log_index);
+            commit_idx = std::min(commit_index, static_cast<int>(logs.size()) - 1);
+            // RAFT_LOG("set commit_idx to %d", commit_idx);
+        }
+        reply.success = true;
+        return reply;
+    }
 
     // 2. 检查prevLogIndex和prevLogTerm是否匹配
-    if (rpc_arg.prev_log_index > static_cast<int>(logs.size())) {
+    int last_log_index = static_cast<int>(logs.size()) - 1;
+    if (rpc_arg.prev_log_index > last_log_index) {
         // 日志缺失，返回false
+        RAFT_LOG("log missing: prev_log_index=%d > last_log_index=%d", arg.prev_log_index, last_log_index);
         reply.term = current_term;
         reply.success = false;
         return reply;
@@ -547,8 +574,11 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
     
     if (rpc_arg.prev_log_index > 0) {
         // 检查term是否匹配
-        if (logs[rpc_arg.prev_log_index - 1].term() != rpc_arg.prev_log_term) {
+        if (logs[arg.prev_log_index].term() != arg.prev_log_term) {
             // 不匹配，返回false
+            RAFT_LOG("log term mismatch: prev_log_term=%d, actual_term=%d", 
+                     arg.prev_log_term, logs[arg.prev_log_index].term());
+            reply.success = false;
             return reply;
         }
     }
@@ -559,26 +589,34 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
     
     // 检查冲突
     for (size_t i = 0; i < args.entries.size(); i++) {
-        int log_idx = index + i + 1;  // +1 因为索引从1开始
+        int log_idx = index + i + 1;  // 逻辑索引
         
-        if (log_idx <= static_cast<int>(logs.size())) {
-            if (logs[log_idx - 1].term() != args.entries[i].term()) {
+        if (log_idx < static_cast<int>(logs.size()) - 1) {
+            if (logs[log_idx].term() != arg.entries[i].term()) {
                 // 发现冲突，删除从这个位置开始的所有条目
-                logs.resize(log_idx - 1);
+                logs.resize(log_idx);
+                RAFT_LOG("found conflict at index %d, truncating log", log_idx);
                 break;
             }
         }
     }
     
     // 4. 追加新条目
-    for (size_t i = logs.size() - index; i < args.entries.size(); i++) {
-        LogEntry<Command> entry(current_term, args.entries[i].command());
-        logs.push_back(entry);
+    for (size_t i = 0; i < arg.entries.size(); i++) {
+        int log_idx = index + i + 1;
+        
+        if (log_idx >= static_cast<int>(logs.size())) {
+            // 追加新条目
+            logs.push_back(arg.entries[i]);
+            RAFT_LOG("append new entry at index %d, term %d", log_idx, arg.entries[i].term());
+        }
+        // 如果已经存在（term匹配），则跳过
     }
     
     // 5. 更新commit_idx
-    if (rpc_arg.leader_commit > commit_idx) {
-        commit_idx = std::min(rpc_arg.leader_commit, static_cast<int>(logs.size()));
+    if (arg.leader_commit > commit_idx) {
+        commit_idx = std::min(arg.leader_commit, static_cast<int>(logs.size()) - 1);
+        RAFT_LOG("update commit_idx to %d", commit_idx);
     }
 
 
@@ -610,6 +648,42 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
     }
 
     // TODO: 实现其他逻辑
+
+    // 如果不是领导者，忽略回复
+    if (role != RaftRole::Leader) {
+        return;
+    }
+
+    // 如果任期不匹配，忽略
+    if (arg.term != current_term) {
+        return;
+    }
+
+    if (reply.success) {
+        // 更新next_idx和match_idx
+        if (!arg.entries.empty()) {
+            int last_log_index = arg.prev_log_index + static_cast<int>(arg.entries.size());
+            next_idx[node_id] = last_log_index + 1;
+            match_idx[node_id] = last_log_index;
+            
+            RAFT_LOG("update node %d: next_idx=%d, match_idx=%d", 
+                     node_id, next_idx[node_id], match_idx[node_id]);
+            
+            // 尝试更新commit_idx
+            update_commit_index();
+        }
+    } else {
+        // 日志不匹配，递减next_idx并重试
+        if (next_idx[node_id] > 1) {
+            next_idx[node_id]--;
+            RAFT_LOG("decrement next_idx for node %d to %d", node_id, next_idx[node_id]);
+            
+            // 立即重试发送日志
+            thread_pool->enqueue([this, node_id]() {
+                send_log_entries(node_id);
+            });
+        }
+    }
     return;
 }
 
@@ -684,6 +758,114 @@ void RaftNode<StateMachine, Command>::send_install_snapshot(int target_id, Insta
     }
 }
 
+template <typename StateMachine, typename Command>
+void RaftNode<StateMachine, Command>::send_log_entries(int target_id)
+{
+    std::lock_guard<std::mutex> lock(mtx);
+        
+    if (role != RaftRole::Leader) {
+        return;
+    }
+        
+    if (target_id < 0 || target_id >= static_cast<int>(next_idx.size())) {
+        return;
+    }
+
+    if(target_id == my_id) {
+        return;
+    }
+
+    if(next_idx[target_id] > static_cast<int>(logs.size()) - 1) {
+        return;
+    }
+        
+    AppendEntriesArgs<Command> args;
+    args.term = current_term;
+    args.leader_id = my_id;
+        
+    // 计算prev_log_index和prev_log_term
+    int prev_log_index = next_idx[target_id] - 1;
+    args.prev_log_index = prev_log_index;
+        
+    if (prev_log_index > 0) {
+        if (prev_log_index < static_cast<int>(logs.size()) - 1) {
+            args.prev_log_term = logs[prev_log_index].term();
+        } else {
+            args.prev_log_term = 0;
+        }
+    } else {
+        args.prev_log_term = 0;
+    }
+        
+    // 获取要发送的日志条目
+    int last_log_index = static_cast<int>(logs.size()) - 1;
+    if (next_idx[target_id] <= last_log_index) {
+        for (int i = next_idx[target_id]; i <= last_log_index; i++) {
+            args.entries.push_back(logs[i]);
+        }
+        RAFT_LOG("sending %zu entries to node %d, starting at index %d", args.entries.size(), target_id, next_idx[target_id]);
+    } else {
+        // 没有新日志，发送心跳
+        args.entries.clear();
+    }
+        
+    args.leader_commit = commit_idx;
+        
+    // 异步发送
+    thread_pool->enqueue([this, target_id, args]() {
+        send_append_entries(target_id, args);
+    });
+}
+
+template <typename StateMachine, typename Command>
+void RaftNode<StateMachine, Command>::update_commit_index()
+{
+    if (role != RaftRole::Leader) {
+        return;
+    }
+        
+    // // 复制match_idx以便排序
+    // std::vector<int> match_copy = match_idx;
+        
+    // // 按降序排序
+    // std::sort(match_copy.rbegin(), match_copy.rend());
+        
+    // // 找到多数节点已复制的索引
+    // int majority = (node_configs.size() / 2) + 1;
+        
+    // for (int n = static_cast<int>(logs.size()) - 1; n > commit_idx; n--) {
+    //     // 计算有多少节点的match_idx >= n
+    //     int count = 0;
+    //     for (int idx : match_copy) {
+    //         if (idx >= n) {
+    //             count++;
+    //             if (count >= majority) {
+    //                 // 检查日志条目是否来自当前任期（Raft安全性要求）
+    //                 if (logs[n].term() == current_term) {
+    //                     commit_idx = n;
+    //                     RAFT_LOG("commit_idx updated to %d", commit_idx);
+    //                 }
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // }
+
+    for (int N = static_cast<int>(logs.size()) - 1; N > commit_idx; --N) {
+        int count = 1; // Count this node
+        for (const auto &config : node_configs) {
+            if (config.node_id != my_id && match_idx[config.node_id] >= N) {
+                count++;
+            }
+        }
+        // The current_term match is required to ensure that the commit index is only updated for the current term
+        if (count > node_configs.size() / 2 && logs[N].term() == current_term) {
+            RAFT_LOG("Leader updating commit_idx to %d", N);
+            commit_idx = N;
+            break;
+        }
+    }
+}
 
 /******************************************************************
 
@@ -732,10 +914,17 @@ void RaftNode<StateMachine, Command>::run_background_election() {
                 RequestVoteArgs args;
                 args.term = current_term;
                 args.candidate_id = my_id;
-                args.last_log_index = 0;    // Part 1: 没有日志
-                args.last_log_term = 0;     // Part 1: 没有日志
+
+                int last_log_index = static_cast<int>(logs.size()) - 1;
+                int last_log_term = 0;
+                if (last_log_index > 0) {
+                    last_log_term = logs[last_log_index].term();
+                }
+        
+                args.last_log_index = last_log_index;
+                args.last_log_term = last_log_term;
             
-                RAFT_LOG("starting election, sending RequestVote to all nodes");
+                RAFT_LOG("starting election, last_log_index=%d, last_log_term=%d", last_log_index, last_log_term);
             
                 // 向所有其他节点发送投票请求（异步）
                 for (size_t i = 0; i < node_configs.size(); i++) {
@@ -772,7 +961,22 @@ void RaftNode<StateMachine, Command>::run_background_commit() {
                 return;
             }
             /* Lab3: Your code here */
-            // TODO: 在后续实现
+
+            // 只有领导者才发送日志
+            if (role != RaftRole::Leader) {
+                continue;
+            }
+
+            update_commit_index();
+
+            // 向所有跟随者发送日志
+            for (size_t i = 0; i < node_configs.size(); i++) {
+                if (i == static_cast<size_t>(my_id)) continue;
+                
+                thread_pool->enqueue([this, i]() {
+                    send_log_entries(i);
+                });
+            }
         }
     }
 
@@ -798,7 +1002,27 @@ void RaftNode<StateMachine, Command>::run_background_apply() {
                 return;
             }
             /* Lab3: Your code here */
-            // TODO: 在后续实现
+
+            // 应用已提交但未应用的日志
+            while (last_applied < commit_idx) {
+                last_applied++;
+                
+                if (last_applied <= static_cast<int>(logs.size()) - 1) {
+                    auto& entry = logs[last_applied];
+                    RAFT_LOG("applying log at index %d, term %d", last_applied, entry.term());
+                    
+                    // 应用到状态机 - 添加空指针检查
+                    if (state) {
+                        Command cmd = entry.command();
+                        state->apply_log(cmd);
+                    } else {
+                        RAFT_LOG("WARNING: state machine is null, cannot apply log");
+                    }
+                } else {
+                    RAFT_LOG("ERROR: invalid last_applied_idx %d for logs size %zu", 
+                             last_applied, logs.size() - 1);
+                }
+            }
         }
     }
 
@@ -816,7 +1040,7 @@ void RaftNode<StateMachine, Command>::run_background_ping() {
     
     while (true) {
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(70));
         
             std::lock_guard<std::mutex> lock(mtx);
 
@@ -834,12 +1058,25 @@ void RaftNode<StateMachine, Command>::run_background_ping() {
                 AppendEntriesArgs<Command> args;
                 args.term = current_term;
                 args.leader_id = my_id;
-                args.prev_log_index = 0;     // Part 1: 没有日志
-                args.prev_log_term = 0;      // Part 1: 没有日志
+
+                // 获取最新的prev_log_index和prev_log_term
+                int last_log_index = static_cast<int>(logs.size()) - 1;
+                args.prev_log_index = last_log_index;
+                if (last_log_index > 0) {
+                    int vector_idx = last_log_index;
+                    if (vector_idx >= 0 && vector_idx < static_cast<int>(logs.size())) {
+                        args.prev_log_term = logs[vector_idx].term();
+                    } else {
+                        args.prev_log_term = 0;
+                    }
+                } else {
+                    args.prev_log_term = 0;
+                }
+        
                 args.entries = std::vector<LogEntry<Command>>();  // 空列表（心跳）
-                args.leader_commit = 0;      // Part 1: 没有提交
-            
-                RAFT_LOG("sending heartbeat to followers");
+                args.leader_commit = commit_idx;
+        
+                // RAFT_LOG("sending heartbeat to followers, commit_idx=%d", commit_idx);
             
                 // 向所有跟随者发送心跳
                 for (size_t i = 0; i < node_configs.size(); i++) {
